@@ -79,7 +79,7 @@ def run_loop(
                         mqtt_client.publish_ha_discovery(slave_id_hex)
                         ha_discovery_sent.add(slave_id_hex)
 
-                    mqtt_client.publish_status(slave_id_hex, {
+                    status = {
                         "state": slave.state.name.lower(),
                         "amps_actual": round(slave.amps_actual, 2),
                         "amps_offered": round(slave.amps_offered, 2),
@@ -87,8 +87,12 @@ def run_loop(
                         "volts_phase_a": slave.volts_phase_a,
                         "volts_phase_b": slave.volts_phase_b,
                         "volts_phase_c": slave.volts_phase_c,
-                        "lifetime_kwh": _calibrated_kwh(slave_id_hex, slave.lifetime_kwh, chargers_config),
-                    })
+                    }
+                    if slave.lifetime_kwh is not None:
+                        status["lifetime_kwh"] = _calibrated_kwh(
+                            slave_id_hex, slave.lifetime_kwh, chargers_config
+                        )
+                    mqtt_client.publish_status(slave_id_hex, status)
 
             elif msg["type"] == "power_status":
                 slave = twc.slaves.get(slave_id)

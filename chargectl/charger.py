@@ -1,5 +1,7 @@
 """TWC slave state management."""
 
+from __future__ import annotations
+
 import time
 from enum import IntEnum
 
@@ -28,7 +30,7 @@ class TWCSlave:
         self.volts_phase_a = 0
         self.volts_phase_b = 0
         self.volts_phase_c = 0
-        self.lifetime_kwh = 0
+        self.lifetime_kwh: int | None = None
         self.last_heartbeat_time = time.time()
 
     def update_from_heartbeat(self, data: bytes) -> None:
