@@ -18,6 +18,7 @@ def make_config(**overrides):
             "voltage_phase2": "RPICT4V3/Vrms2",
             "voltage_phase3": "RPICT4V3/Vrms3",
         },
+        chargers={},
         log_level="info",
     )
     defaults.update(overrides)

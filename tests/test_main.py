@@ -1,6 +1,7 @@
 from unittest.mock import patch, MagicMock
 import tempfile
 import os
+from chargectl.__main__ import _calibrated_kwh
 
 VALID_CONFIG = """
 mqtt:
@@ -41,3 +42,22 @@ def test_main_loads_config_and_starts():
         mock_loop.assert_called_once()
 
     os.unlink(path)
+
+
+def test_calibrated_kwh_with_baseline():
+    config = {"2919": {"kwh_real": 67522, "kwh_counter": 4793511}}
+    # Counter hasn't changed -> return baseline
+    assert _calibrated_kwh("2919", 4793511, config) == 67522
+    # Counter increased by 100 -> baseline + 100
+    assert _calibrated_kwh("2919", 4793611, config) == 67622
+
+
+def test_calibrated_kwh_no_baseline():
+    # No config -> return raw value
+    assert _calibrated_kwh("2919", 4793511, {}) == 4793511
+
+
+def test_calibrated_kwh_unknown_slave():
+    config = {"6807": {"kwh_real": 5149, "kwh_counter": 2437}}
+    # Unknown slave -> return raw value
+    assert _calibrated_kwh("2919", 4793511, config) == 4793511

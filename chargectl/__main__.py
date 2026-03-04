@@ -26,14 +26,25 @@ def _handle_signal(sig, frame):
     _running = False
 
 
+def _calibrated_kwh(slave_id_hex: str, raw_kwh: int, chargers_config: dict) -> int:
+    """Apply kWh baseline calibration if configured."""
+    cal = chargers_config.get(slave_id_hex, {})
+    if "kwh_real" in cal and "kwh_counter" in cal:
+        return cal["kwh_real"] + (raw_kwh - cal["kwh_counter"])
+    return raw_kwh
+
+
 def run_loop(
     twc: TWCMaster,
     mqtt_client: ChargeMQTT,
     engine: ModulationEngine,
+    chargers_config: dict | None = None,
 ) -> None:
     """Main control loop."""
     global _running
 
+    if chargers_config is None:
+        chargers_config = {}
     last_heartbeat_time: dict[bytes, float] = {}
     last_power_poll_time = 0.0
     ha_discovery_sent: set[str] = set()
@@ -76,7 +87,7 @@ def run_loop(
                         "volts_phase_a": slave.volts_phase_a,
                         "volts_phase_b": slave.volts_phase_b,
                         "volts_phase_c": slave.volts_phase_c,
-                        "lifetime_kwh": slave.lifetime_kwh,
+                        "lifetime_kwh": _calibrated_kwh(slave_id_hex, slave.lifetime_kwh, chargers_config),
                     })
 
             elif msg["type"] == "power_status":
@@ -165,7 +176,7 @@ def main(argv: list[str] | None = None) -> None:
     try:
         twc.open()
         mqtt_client.connect()
-        run_loop(twc, mqtt_client, engine)
+        run_loop(twc, mqtt_client, engine, config.chargers)
     except Exception:
         logger.exception("Fatal error")
         sys.exit(1)

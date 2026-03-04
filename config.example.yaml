@@ -23,5 +23,17 @@ power_source:
     voltage_phase2: "RPICT4V3/Vrms2"
     voltage_phase3: "RPICT4V3/Vrms3"
 
+# kWh baseline calibration per TWC
+# The TWC's internal counter may be inaccurate. Set the known real kWh
+# and the TWC counter value at that moment. chargectl calculates:
+#   displayed_kwh = real_kwh + (current_counter - counter_at_calibration)
+# chargers:
+#   "2919":
+#     kwh_real: 67522
+#     kwh_counter: 4793511
+#   "6807":
+#     kwh_real: 5149
+#     kwh_counter: 2437
+
 logging:
   level: info

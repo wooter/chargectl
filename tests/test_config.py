@@ -43,6 +43,7 @@ def test_load_config_from_file():
     assert cfg.power_source_type == "rpict4v3"
     assert cfg.power_topics["power_phase1"] == "RPICT4V3/RP1"
     assert cfg.log_level == "info"
+    assert cfg.chargers == {}
 
 
 def test_load_config_missing_file():

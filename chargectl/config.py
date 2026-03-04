@@ -19,6 +19,7 @@ class Config:
     margin_amps: int
     power_source_type: str
     power_topics: dict[str, str]
+    chargers: dict[str, dict]
     log_level: str
 
 
@@ -48,5 +49,6 @@ def load_config(path: str) -> Config:
         margin_amps=grid.get("margin_amps", 3),
         power_source_type=power.get("type", "rpict4v3"),
         power_topics=power.get("topics", {}),
+        chargers=raw.get("chargers", {}),
         log_level=logging_cfg.get("level", "info"),
     )
