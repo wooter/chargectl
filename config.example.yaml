@@ -1,0 +1,27 @@
+mqtt:
+  broker: localhost
+  port: 1883
+  # username: ""
+  # password: ""
+
+rs485:
+  port: /dev/ttyUSB0
+  baud: 9600
+
+grid:
+  max_amps_per_phase: 20
+  margin_amps: 3
+
+power_source:
+  # Supported types: rpict4v3, dsmr
+  type: rpict4v3
+  topics:
+    power_phase1: "RPICT4V3/RP1"
+    power_phase2: "RPICT4V3/RP2"
+    power_phase3: "RPICT4V3/RP3"
+    voltage_phase1: "RPICT4V3/Vrms1"
+    voltage_phase2: "RPICT4V3/Vrms2"
+    voltage_phase3: "RPICT4V3/Vrms3"
+
+logging:
+  level: info
