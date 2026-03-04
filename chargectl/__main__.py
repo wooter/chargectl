@@ -35,6 +35,7 @@ def run_loop(
     global _running
 
     last_heartbeat_time: dict[bytes, float] = {}
+    last_power_poll_time = 0.0
     ha_discovery_sent: set[str] = set()
 
     logger.info("Sending link ready announcements...")
@@ -75,19 +76,27 @@ def run_loop(
                         "volts_phase_a": slave.volts_phase_a,
                         "volts_phase_b": slave.volts_phase_b,
                         "volts_phase_c": slave.volts_phase_c,
+                        "lifetime_kwh": slave.lifetime_kwh,
                     })
 
             elif msg["type"] == "power_status":
                 slave = twc.slaves.get(slave_id)
                 if slave:
+                    slave.lifetime_kwh = msg["kwh"]
                     slave.update_voltages(*msg["volts"])
 
         # 2. Get power measurements and calculate desired amps
         power, voltage = mqtt_client.get_measurements()
         desired_amps = engine.calculate(power, voltage)
 
-        # 3. Send heartbeats to each slave (~1 per second per slave)
+        # 3. Poll kWh and voltages every 60 seconds
         now = time.time()
+        if now - last_power_poll_time >= 60 and twc.slaves:
+            for slave in twc.slaves.values():
+                twc.request_power_status(slave)
+            last_power_poll_time = now
+
+        # 4. Send heartbeats to each slave (~1 per second per slave)
         for slave_id, slave in list(twc.slaves.items()):
             last = last_heartbeat_time.get(slave_id, 0)
             if now - last >= 1.0:

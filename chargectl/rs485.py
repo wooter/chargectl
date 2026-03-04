@@ -78,6 +78,7 @@ from chargectl.charger import TWCSlave
 FUNC_MASTER_LINKREADY1 = bytes([0xFC, 0xE1])
 FUNC_MASTER_LINKREADY2 = bytes([0xFB, 0xE2])
 FUNC_MASTER_HEARTBEAT = bytes([0xFB, 0xE0])
+FUNC_MASTER_POWER_REQUEST = bytes([0xFB, 0xEB])
 FUNC_SLAVE_LINKREADY = bytes([0xFD, 0xE2])
 FUNC_SLAVE_HEARTBEAT = bytes([0xFD, 0xE0])
 FUNC_SLAVE_POWER_STATUS = bytes([0xFD, 0xEB])
@@ -123,6 +124,13 @@ class TWCMaster:
             "TX heartbeat to %s: %.1fA (cmd=%02X)",
             slave.twc_id.hex(), desired_amps, heartbeat_data[0],
         )
+
+    def request_power_status(self, slave: TWCSlave) -> None:
+        """Request kWh and voltage data from a slave (FBEB command)."""
+        data = FUNC_MASTER_POWER_REQUEST + self.master_id + slave.twc_id + bytes(9)
+        msg = build_message(data)
+        self._send_raw(msg)
+        logger.debug("TX power status request to %s", slave.twc_id.hex())
 
     def read_and_process(self) -> list[dict]:
         """Read available data from serial and process complete messages."""
@@ -175,13 +183,20 @@ class TWCMaster:
             return {"type": "heartbeat", "slave_id": slave_id, "heartbeat_data": heartbeat_data}
 
         elif func == FUNC_SLAVE_POWER_STATUS:
-            if len(data) >= 14:
-                volts_a = ((data[6] << 8) + data[7])
-                volts_b = ((data[8] << 8) + data[9])
-                volts_c = ((data[10] << 8) + data[11])
+            # FDEB response: <slaveID 2B> <masterID 2B> <kWh 4B> <VoltA 2B> <VoltB 2B> <VoltC 2B>
+            if len(data) >= 12:
+                kwh = (data[4] << 24) + (data[5] << 16) + (data[6] << 8) + data[7]
+                volts_a = (data[8] << 8) + data[9] if len(data) >= 14 else 0
+                volts_b = (data[10] << 8) + data[11] if len(data) >= 14 else 0
+                volts_c = (data[12] << 8) + data[13] if len(data) >= 14 else 0
+                logger.info(
+                    "Slave %s: %d kWh lifetime, %dV/%dV/%dV",
+                    slave_id.hex(), kwh, volts_a, volts_b, volts_c,
+                )
                 return {
                     "type": "power_status",
                     "slave_id": slave_id,
+                    "kwh": kwh,
                     "volts": (volts_a, volts_b, volts_c),
                 }
             return None
