@@ -1,5 +1,7 @@
 """RS-485 SLIP framing and TWC protocol."""
 
+from __future__ import annotations
+
 import logging
 
 logger = logging.getLogger(__name__)

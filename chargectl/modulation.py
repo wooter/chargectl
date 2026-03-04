@@ -1,5 +1,7 @@
 """Power modulation engine for EV charging."""
 
+from __future__ import annotations
+
 import logging
 import time
 

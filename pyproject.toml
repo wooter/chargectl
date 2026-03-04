@@ -7,7 +7,7 @@ name = "chargectl"
 version = "0.1.0"
 description = "Lightweight EV charger controller for Tesla Wall Connector Gen 2 via RS-485"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.9"
 license = "MIT"
 dependencies = [
     "paho-mqtt>=2.0",

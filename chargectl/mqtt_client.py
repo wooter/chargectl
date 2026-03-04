@@ -1,5 +1,7 @@
 """MQTT client for power measurement input and status/HA discovery output."""
 
+from __future__ import annotations
+
 import json
 import logging
 import paho.mqtt.client as mqtt
