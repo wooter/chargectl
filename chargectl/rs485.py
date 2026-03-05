@@ -98,7 +98,7 @@ class TWCMaster:
 
     def open(self) -> None:
         """Open the serial port."""
-        self.serial = serial.Serial(self.port, self.baud, timeout=0.1)
+        self.serial = serial.Serial(self.port, self.baud, timeout=0)
         logger.info("RS-485 opened on %s at %d baud", self.port, self.baud)
 
     def close(self) -> None:
@@ -134,24 +134,34 @@ class TWCMaster:
         logger.debug("TX power status request to %s", slave.twc_id.hex())
 
     def read_and_process(self) -> list[dict]:
-        """Read available data from serial and process complete messages."""
+        """Read available data from serial and process complete messages.
+
+        Reads one byte at a time (like TWCManager) to reliably build
+        SLIP frames from the RS-485 bus at 9600 baud.
+        """
         results = []
         if not self.serial:
             return results
 
-        # Read all available data (first read waits up to timeout,
-        # then drain remaining bytes with non-blocking reads)
-        data = self.serial.read(256)
-        if data:
-            self._read_buffer.extend(data)
-            # Drain any remaining bytes without waiting
-            while self.serial.in_waiting:
-                more = self.serial.read(self.serial.in_waiting)
-                if more:
-                    self._read_buffer.extend(more)
-                else:
-                    break
-            logger.debug("RX raw: %s", self._read_buffer.hex())
+        # Read all available bytes from the serial buffer
+        available = self.serial.in_waiting
+        if available > 0:
+            data = self.serial.read(available)
+            if data:
+                self._read_buffer.extend(data)
+
+        # If we have a partial message (started with C0 but no end C0 yet),
+        # wait briefly for the rest to arrive
+        if len(self._read_buffer) > 0:
+            start = self._find_frame_start()
+            if start is not None:
+                end = self._find_frame_end(start + 1)
+                if end is None and len(self._read_buffer) < 256:
+                    # Partial frame — wait a bit for more data
+                    time.sleep(0.05)
+                    available = self.serial.in_waiting
+                    if available > 0:
+                        self._read_buffer.extend(self.serial.read(available))
 
         # Discard any garbage before the first frame start
         first_c0 = self._find_frame_start()
@@ -172,6 +182,10 @@ class TWCMaster:
                 result = self._parse_incoming(parsed_data)
                 if result:
                     results.append(result)
+
+        # Prevent buffer from growing unbounded
+        if len(self._read_buffer) > 1024:
+            self._read_buffer = bytearray()
 
         return results
 
