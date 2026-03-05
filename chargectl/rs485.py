@@ -98,7 +98,7 @@ class TWCMaster:
 
     def open(self) -> None:
         """Open the serial port."""
-        self.serial = serial.Serial(self.port, self.baud, timeout=0)
+        self.serial = serial.Serial(self.port, self.baud, timeout=0.5)
         logger.info("RS-485 opened on %s at %d baud", self.port, self.baud)
 
     def close(self) -> None:
@@ -136,32 +136,23 @@ class TWCMaster:
     def read_and_process(self) -> list[dict]:
         """Read available data from serial and process complete messages.
 
-        Reads one byte at a time (like TWCManager) to reliably build
-        SLIP frames from the RS-485 bus at 9600 baud.
+        Uses blocking read (timeout=0.5s) to wait for data, then drains
+        any remaining bytes. This matches the 1s loop cadence — we block
+        up to 0.5s waiting for a response, then process what we got.
         """
         results = []
         if not self.serial:
             return results
 
-        # Read all available bytes from the serial buffer
-        available = self.serial.in_waiting
-        if available > 0:
-            data = self.serial.read(available)
-            if data:
-                self._read_buffer.extend(data)
-
-        # If we have a partial message (started with C0 but no end C0 yet),
-        # wait briefly for the rest to arrive
-        if len(self._read_buffer) > 0:
-            start = self._find_frame_start()
-            if start is not None:
-                end = self._find_frame_end(start + 1)
-                if end is None and len(self._read_buffer) < 256:
-                    # Partial frame — wait a bit for more data
-                    time.sleep(0.05)
-                    available = self.serial.in_waiting
-                    if available > 0:
-                        self._read_buffer.extend(self.serial.read(available))
+        # Blocking read: waits up to timeout for first byte(s)
+        data = self.serial.read(1)
+        if data:
+            self._read_buffer.extend(data)
+            # Drain remaining bytes without waiting
+            time.sleep(0.05)  # let full frame arrive at 9600 baud
+            available = self.serial.in_waiting
+            if available > 0:
+                self._read_buffer.extend(self.serial.read(available))
 
         # Discard any garbage before the first frame start
         first_c0 = self._find_frame_start()
