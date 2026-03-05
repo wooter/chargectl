@@ -139,10 +139,24 @@ class TWCMaster:
         if not self.serial:
             return results
 
+        # Read all available data (first read waits up to timeout,
+        # then drain remaining bytes with non-blocking reads)
         data = self.serial.read(256)
         if data:
             self._read_buffer.extend(data)
-            logger.debug("RX raw: %s", data.hex())
+            # Drain any remaining bytes without waiting
+            while self.serial.in_waiting:
+                more = self.serial.read(self.serial.in_waiting)
+                if more:
+                    self._read_buffer.extend(more)
+                else:
+                    break
+            logger.debug("RX raw: %s", self._read_buffer.hex())
+
+        # Discard any garbage before the first frame start
+        first_c0 = self._find_frame_start()
+        if first_c0 is not None and first_c0 > 0:
+            self._read_buffer = self._read_buffer[first_c0:]
 
         while True:
             start = self._find_frame_start()
