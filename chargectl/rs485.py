@@ -98,7 +98,7 @@ class TWCMaster:
 
     def open(self) -> None:
         """Open the serial port."""
-        self.serial = serial.Serial(self.port, self.baud, timeout=0)
+        self.serial = serial.Serial(self.port, self.baud, timeout=0.1)
         logger.info("RS-485 opened on %s at %d baud", self.port, self.baud)
 
     def close(self) -> None:
