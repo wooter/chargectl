@@ -89,6 +89,7 @@ class TWCMaster:
 
     def __init__(self, port: str, baud: int = 9600):
         self.master_id = bytes([0x77, 0x77])
+        self.master_sign = bytes([0x77])
         self.port = port
         self.baud = baud
         self.serial: serial.Serial | None = None
@@ -110,7 +111,7 @@ class TWCMaster:
         """Send master link ready announcements (5 each type)."""
         for func in [FUNC_MASTER_LINKREADY1, FUNC_MASTER_LINKREADY2]:
             for _ in range(5):
-                data = func + self.master_id + bytes(8)
+                data = func + self.master_id + self.master_sign + bytes(8)
                 msg = build_message(data)
                 self._send_raw(msg)
                 time.sleep(0.1)

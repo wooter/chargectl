@@ -55,21 +55,16 @@ class ModulationEngine:
         now = time.time()
         new_amps = self.desired_amps
 
-        if free_amps < 0:
-            new_amps = max(0, self.desired_amps + free_amps)
-            new_amps = int(new_amps)
-            logger.warning(
-                "Emergency ramp-down: worst_phase=%.1fA free=%.1fA -> %dA",
-                worst_phase_amps, free_amps, new_amps,
-            )
+        is_emergency = free_amps < 0
+
+        if is_emergency:
+            new_amps = max(0, int(self.desired_amps + free_amps))
         elif now - self.last_change_time < RATE_LIMIT_SECONDS:
             return self.desired_amps
         elif free_amps < 2:
             new_amps = self.desired_amps - 1
-            logger.info("Ramp down: free=%.1fA -> %dA", free_amps, new_amps)
         elif free_amps > 4:
             new_amps = self.desired_amps + 1
-            logger.info("Ramp up: free=%.1fA -> %dA", free_amps, new_amps)
         else:
             return self.desired_amps
 
@@ -83,6 +78,15 @@ class ModulationEngine:
 
         if new_amps != self.desired_amps:
             self.last_change_time = now
+            if is_emergency:
+                logger.warning(
+                    "Emergency ramp-down: worst_phase=%.1fA free=%.1fA -> %dA",
+                    worst_phase_amps, free_amps, new_amps,
+                )
+            elif new_amps < self.desired_amps:
+                logger.info("Ramp down: free=%.1fA -> %dA", free_amps, new_amps)
+            else:
+                logger.info("Ramp up: free=%.1fA -> %dA", free_amps, new_amps)
 
         self.desired_amps = new_amps
         return new_amps
