@@ -40,21 +40,30 @@ def run_loop(
     engine: ModulationEngine,
     chargers_config: dict | None = None,
 ) -> None:
-    """Main control loop."""
+    """Main control loop.
+
+    Runs at ~1 iteration per second, matching TWCManager's proven cadence:
+    1. Send heartbeat to one slave
+    2. Wait for response
+    3. Read and process all available messages
+    4. Calculate modulation (once per full cycle through all slaves)
+    """
     global _running
 
     if chargers_config is None:
         chargers_config = {}
-    last_heartbeat_time: dict[bytes, float] = {}
-    last_power_poll_time = 0.0
     ha_discovery_sent: set[str] = set()
+    last_power_poll_time = 0.0
+    slave_index = 0
 
     logger.info("Sending link ready announcements...")
     twc.send_linkready()
     logger.info("Entering main loop")
 
     while _running:
-        # 1. Read and process RS-485 messages
+        now = time.time()
+
+        # 1. Read and process any available RS-485 messages
         messages = twc.read_and_process()
         for msg in messages:
             slave_id = msg["slave_id"]
@@ -100,29 +109,38 @@ def run_loop(
                     slave.lifetime_kwh = msg["kwh"]
                     slave.update_voltages(*msg["volts"])
 
-        # 2. Get power measurements and calculate desired amps
-        power, voltage = mqtt_client.get_measurements()
-        desired_amps = engine.calculate(power, voltage)
+        # 2. If we have slaves, send heartbeat to ONE slave per iteration
+        #    (round-robin, like TWCManager does)
+        slave_list = list(twc.slaves.items())
+        if slave_list:
+            if slave_index >= len(slave_list):
+                slave_index = 0
+
+            slave_id, slave = slave_list[slave_index]
+            slave_index += 1
+
+            # Calculate desired amps once per cycle through all slaves
+            if slave_index == 1:
+                power, voltage = mqtt_client.get_measurements()
+                engine.calculate(power, voltage)
+
+            twc.send_heartbeat(slave, engine.desired_amps)
+
+            # Check for stale slaves
+            if slave.is_stale():
+                logger.warning("TWC slave %s is stale, removing", slave_id.hex())
+                del twc.slaves[slave_id]
+                slave_index = 0
 
         # 3. Poll kWh and voltages every 60 seconds
-        now = time.time()
         if now - last_power_poll_time >= 60 and twc.slaves:
             for slave in twc.slaves.values():
                 twc.request_power_status(slave)
             last_power_poll_time = now
 
-        # 4. Send heartbeats to each slave (~1 per second per slave)
-        for slave_id, slave in list(twc.slaves.items()):
-            last = last_heartbeat_time.get(slave_id, 0)
-            if now - last >= 1.0:
-                twc.send_heartbeat(slave, desired_amps)
-                last_heartbeat_time[slave_id] = now
-
-            if slave.is_stale():
-                logger.warning("TWC slave %s is stale, removing", slave_id.hex())
-                del twc.slaves[slave_id]
-
-        time.sleep(0.025)
+        # 4. Sleep ~1 second per slave (like TWCManager)
+        #    This gives the slave time to respond before next iteration
+        time.sleep(1.0)
 
 
 def main(argv: list[str] | None = None) -> None:
