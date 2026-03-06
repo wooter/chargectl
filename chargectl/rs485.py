@@ -98,7 +98,7 @@ class TWCMaster:
 
     def open(self) -> None:
         """Open the serial port."""
-        self.serial = serial.Serial(self.port, self.baud, timeout=0.25)
+        self.serial = serial.Serial(self.port, self.baud, timeout=0)
         logger.info("RS-485 opened on %s at %d baud", self.port, self.baud)
 
     def close(self) -> None:
@@ -133,52 +133,85 @@ class TWCMaster:
         self._send_raw(msg)
         logger.debug("TX power status request to %s", slave.twc_id.hex())
 
-    def read_and_process(self) -> list[dict]:
-        """Read available data from serial and process complete messages.
+    def read_message(self) -> bytes | None:
+        """Read one complete message from the RS-485 bus.
 
-        Blocking read(1) waits up to 250ms for first byte. Once data
-        starts arriving, drains all available bytes with a 50ms settle
-        time to ensure complete frames.
+        Matches TWCManager's byte-by-byte approach:
+        - Wait for data with in_waiting check
+        - Build message byte by byte
+        - Start on first C0, end when msgLen >= 16 and C0 seen
+        - Timeout after 2 seconds of partial message
+        - Returns unescaped message (without C0 delimiters) or None
         """
-        results = []
         if not self.serial:
-            return results
+            return None
 
-        # Blocking read: waits up to timeout (250ms) for first byte
-        data = self.serial.read(1)
-        if data:
-            self._read_buffer.extend(data)
-            # Let the rest of the frame arrive
-            time.sleep(0.05)
-            # Drain all available bytes
-            available = self.serial.in_waiting
-            if available > 0:
-                self._read_buffer.extend(self.serial.read(available))
-
-        # Discard any garbage before the first frame start
-        first_c0 = self._find_frame_start()
-        if first_c0 is not None and first_c0 > 0:
-            self._read_buffer = self._read_buffer[first_c0:]
+        msg = bytearray()
+        msg_len = 0
+        rx_start = time.time()
 
         while True:
-            start = self._find_frame_start()
-            if start is None:
-                break
-            end = self._find_frame_end(start + 1)
-            if end is None:
-                break
-            frame = bytes(self._read_buffer[start : end + 1])
-            self._read_buffer = self._read_buffer[end + 1 :]
-            parsed_data = parse_message(frame)
-            if parsed_data:
-                result = self._parse_incoming(parsed_data)
-                if result:
-                    results.append(result)
+            available = self.serial.in_waiting
+            if available == 0:
+                if msg_len == 0:
+                    # No data and no partial message — nothing to read
+                    return None
+                elif time.time() - rx_start > 2.0:
+                    # Timeout waiting for message completion
+                    logger.debug("Message timeout after %d bytes", msg_len)
+                    return None
+                time.sleep(0.025)
+                continue
 
-        # Prevent buffer from growing unbounded
-        if len(self._read_buffer) > 1024:
-            self._read_buffer = bytearray()
+            byte = self.serial.read(1)
+            if not byte:
+                continue
 
+            rx_start = time.time()
+
+            if msg_len == 0 and byte[0] != SLIP_END:
+                # Garbage between messages — ignore
+                continue
+            elif msg_len > 0 and msg_len < 15 and byte[0] == SLIP_END:
+                # C0 before full message — restart
+                msg = bytearray(byte)
+                msg_len = 1
+                continue
+
+            msg += byte
+            msg_len += 1
+
+            # Messages are 16+ raw bytes (14-16 unescaped + C0 delimiters)
+            # Complete when we have enough bytes and see closing C0
+            if msg_len >= 16 and byte[0] == SLIP_END:
+                break
+
+        if msg_len < 16:
+            return None
+
+        # Strip C0 delimiters and unescape
+        inner = slip_decode(msg[1:-1])
+        # Verify checksum
+        if len(inner) < 2:
+            return None
+        data, cs = inner[:-1], inner[-1]
+        if checksum(data) != cs:
+            logger.debug("Checksum mismatch")
+            return None
+
+        return data
+
+    def read_and_process(self) -> list[dict]:
+        """Read and process all available messages."""
+        results = []
+        # Read up to 4 messages per call (2 slaves × 2 message types)
+        for _ in range(4):
+            data = self.read_message()
+            if data is None:
+                break
+            result = self._parse_incoming(data)
+            if result:
+                results.append(result)
         return results
 
     def _build_heartbeat_message(self, slave_id: bytes, heartbeat_data: bytes) -> bytes:
