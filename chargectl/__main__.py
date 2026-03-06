@@ -54,6 +54,7 @@ def run_loop(
         chargers_config = {}
     ha_discovery_sent: set[str] = set()
     last_power_poll_time = 0.0
+    last_heartbeat_time = 0.0
     slave_index = 0
 
     logger.info("Sending link ready announcements...")
@@ -109,10 +110,11 @@ def run_loop(
                     slave.lifetime_kwh = msg["kwh"]
                     slave.update_voltages(*msg["volts"])
 
-        # 2. If we have slaves, send heartbeat to ONE slave per iteration
+        # 2. If we have slaves, send heartbeat to ONE slave per second
         #    (round-robin, like TWCManager does)
+        now = time.time()
         slave_list = list(twc.slaves.items())
-        if slave_list:
+        if slave_list and now - last_heartbeat_time >= 1.0:
             if slave_index >= len(slave_list):
                 slave_index = 0
 
@@ -125,6 +127,7 @@ def run_loop(
                 engine.calculate(power, voltage)
 
             twc.send_heartbeat(slave, engine.desired_amps)
+            last_heartbeat_time = now
 
             # Check for stale slaves
             if slave.is_stale():
@@ -138,9 +141,10 @@ def run_loop(
                 twc.request_power_status(slave)
             last_power_poll_time = now
 
-        # 4. Sleep ~1 second per slave (like TWCManager)
-        #    This gives the slave time to respond before next iteration
-        time.sleep(1.0)
+        # 4. Brief sleep to prevent CPU spin when no data available
+        #    The actual pacing is handled by read_and_process() which waits
+        #    for serial data, and the 1-heartbeat-per-cycle cadence
+        time.sleep(0.025)
 
 
 def main(argv: list[str] | None = None) -> None:

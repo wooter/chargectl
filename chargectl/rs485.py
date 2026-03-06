@@ -98,7 +98,7 @@ class TWCMaster:
 
     def open(self) -> None:
         """Open the serial port."""
-        self.serial = serial.Serial(self.port, self.baud, timeout=0.5)
+        self.serial = serial.Serial(self.port, self.baud, timeout=0)
         logger.info("RS-485 opened on %s at %d baud", self.port, self.baud)
 
     def close(self) -> None:
@@ -136,23 +136,35 @@ class TWCMaster:
     def read_and_process(self) -> list[dict]:
         """Read available data from serial and process complete messages.
 
-        Uses blocking read (timeout=0.5s) to wait for data, then drains
-        any remaining bytes. This matches the 1s loop cadence — we block
-        up to 0.5s waiting for a response, then process what we got.
+        Like TWCManager: read byte-by-byte in a tight loop until no more
+        data is available, building up the frame buffer. If we're in the
+        middle of a frame (started with C0), wait up to 2s for the rest.
         """
         results = []
         if not self.serial:
             return results
 
-        # Blocking read: waits up to timeout for first byte(s)
-        data = self.serial.read(1)
-        if data:
-            self._read_buffer.extend(data)
-            # Drain remaining bytes without waiting
-            time.sleep(0.05)  # let full frame arrive at 9600 baud
+        # Read all available bytes, waiting for partial frames
+        msg_started = any(b == SLIP_END for b in self._read_buffer)
+        timeout_start = time.time()
+
+        while True:
             available = self.serial.in_waiting
             if available > 0:
                 self._read_buffer.extend(self.serial.read(available))
+                msg_started = True
+                timeout_start = time.time()
+            elif msg_started and self._find_frame_start() is not None:
+                # We have a partial frame, check if it's complete
+                start = self._find_frame_start()
+                end = self._find_frame_end(start + 1) if start is not None else None
+                if end is not None:
+                    break  # Got a complete frame
+                elif time.time() - timeout_start > 2.0:
+                    break  # Timeout waiting for frame completion
+                time.sleep(0.025)
+            else:
+                break
 
         # Discard any garbage before the first frame start
         first_c0 = self._find_frame_start()
