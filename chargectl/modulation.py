@@ -61,9 +61,9 @@ class ModulationEngine:
             new_amps = max(0, int(self.desired_amps + free_amps))
         elif now - self.last_change_time < RATE_LIMIT_SECONDS:
             return self.desired_amps
-        elif free_amps < 2:
+        elif free_amps < 1:
             new_amps = self.desired_amps - 1
-        elif free_amps > 4:
+        elif free_amps > self.margin_amps:
             new_amps = self.desired_amps + 1
         else:
             return self.desired_amps
