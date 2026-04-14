@@ -114,6 +114,58 @@ def test_watchdog_no_data():
     assert result == 0
 
 
+def test_allocate_zero_slaves():
+    engine = ModulationEngine(max_amps=20, margin_amps=1)
+    engine.desired_amps = 12
+    assert engine.allocate(0) == []
+
+
+def test_allocate_zero_desired():
+    engine = ModulationEngine(max_amps=20, margin_amps=1)
+    engine.desired_amps = 0
+    assert engine.allocate(2) == [0, 0]
+
+
+def test_allocate_single_slave():
+    engine = ModulationEngine(max_amps=20, margin_amps=1)
+    engine.desired_amps = 11
+    assert engine.allocate(1) == [11]
+
+
+def test_allocate_even_split():
+    engine = ModulationEngine(max_amps=20, margin_amps=1)
+    engine.desired_amps = 14
+    assert engine.allocate(2) == [7, 7]
+
+
+def test_allocate_split_with_remainder():
+    engine = ModulationEngine(max_amps=20, margin_amps=1)
+    engine.desired_amps = 13
+    # 13/2 = 6 remainder 1, first slave gets +1
+    assert engine.allocate(2) == [7, 6]
+
+
+def test_allocate_below_min_packs_into_one():
+    engine = ModulationEngine(max_amps=20, margin_amps=1)
+    engine.desired_amps = 11
+    # 11/2 = 5 < TWC_MIN, so one slave gets 11, other gets 0
+    assert engine.allocate(2) == [11, 0]
+
+
+def test_allocate_below_min_packs_into_two_of_three():
+    engine = ModulationEngine(max_amps=20, margin_amps=1)
+    engine.desired_amps = 14
+    # 14/3 = 4 < TWC_MIN. 14//6 = 2 cars, 14/2 = 7 each
+    assert engine.allocate(3) == [7, 7, 0]
+
+
+def test_allocate_total_below_min():
+    engine = ModulationEngine(max_amps=20, margin_amps=1)
+    engine.desired_amps = 5
+    # Not enough total to hit TWC_MIN even for one car
+    assert engine.allocate(2) == [0, 0]
+
+
 def test_worst_phase_used():
     engine = ModulationEngine(max_amps=20, margin_amps=1)
     engine.desired_amps = 10

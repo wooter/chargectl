@@ -10,7 +10,7 @@ import time
 
 from chargectl import __version__
 from chargectl.config import load_config
-from chargectl.charger import TWCSlave
+from chargectl.charger import SlaveState, TWCSlave
 from chargectl.modulation import ModulationEngine
 from chargectl.mqtt_client import ChargeMQTT
 from chargectl.rs485 import TWCMaster
@@ -56,6 +56,7 @@ def run_loop(
     last_power_poll_time = 0.0
     last_heartbeat_time = 0.0
     slave_index = 0
+    allocation: dict[bytes, int] = {}
 
     logger.info("Sending link ready announcements...")
     twc.send_linkready()
@@ -121,12 +122,24 @@ def run_loop(
             slave_id, slave = slave_list[slave_index]
             slave_index += 1
 
-            # Calculate desired amps once per cycle through all slaves
+            # Recompute total budget and per-slave allocation at start of cycle
             if slave_index == 1:
                 power, voltage = mqtt_client.get_measurements()
                 engine.calculate(power, voltage)
 
-            twc.send_heartbeat(slave, engine.desired_amps)
+                active = [
+                    sid for sid, s in slave_list
+                    if s.state in (
+                        SlaveState.CHARGING,
+                        SlaveState.STARTING,
+                        SlaveState.PLUGGED_READY,
+                    )
+                ]
+                shares = engine.allocate(len(active))
+                allocation = dict(zip(active, shares))
+
+            offered = allocation.get(slave_id, 0)
+            twc.send_heartbeat(slave, offered)
             last_heartbeat_time = now
 
             # Check for stale slaves

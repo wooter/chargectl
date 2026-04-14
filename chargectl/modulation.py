@@ -13,7 +13,11 @@ WATCHDOG_TIMEOUT = 15
 
 
 class ModulationEngine:
-    """Calculates safe charging amps based on per-phase power measurements."""
+    """Calculates safe charging amps based on per-phase power measurements.
+
+    `desired_amps` is the TOTAL allocation across all active chargers, not
+    per-slave. Use `allocate(n)` to split it across n active slaves.
+    """
 
     def __init__(self, max_amps: int, margin_amps: int):
         self.max_amps = max_amps
@@ -21,6 +25,32 @@ class ModulationEngine:
         self.desired_amps = 0
         self.last_change_time = 0.0
         self.last_data_time = time.time()
+
+    def allocate(self, n_active: int) -> list[int]:
+        """Split desired_amps across n_active slaves.
+
+        Returns a list of length n_active. If per-slave share falls below
+        TWC_MIN_AMPS, packs the total into fewer slaves at >= TWC_MIN_AMPS
+        and gives 0 to the rest.
+        """
+        if n_active <= 0:
+            return []
+        total = self.desired_amps
+        if total <= 0:
+            return [0] * n_active
+        per = total // n_active
+        if per >= TWC_MIN_AMPS:
+            remainder = total - per * n_active
+            return [per + (1 if i < remainder else 0) for i in range(n_active)]
+        n_charging = total // TWC_MIN_AMPS
+        if n_charging == 0:
+            return [0] * n_active
+        per = total // n_charging
+        remainder = total - per * n_charging
+        return [
+            per + (1 if i < remainder else 0) if i < n_charging else 0
+            for i in range(n_active)
+        ]
 
     def calculate(
         self,
