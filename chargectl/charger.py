@@ -54,12 +54,9 @@ class TWCSlave:
         hundredths = int(desired_amps * 100)
         self.amps_offered = desired_amps
 
-        if desired_amps == 0:
-            command = 0x05
-        elif self.protocol_version == 2:
-            command = 0x09
-        else:
-            command = 0x05
+        # P2 TWCs ignore 0x05 once charging has started — use 0x09 always on P2,
+        # for both setting and zeroing the offer. Matches TWCManager's behavior.
+        command = 0x09 if self.protocol_version == 2 else 0x05
 
         data = bytearray([
             command,

@@ -40,10 +40,11 @@ def test_build_heartbeat_data_set_amps():
 
 
 def test_build_heartbeat_data_stop():
+    # P2 must use 0x09 even for stop (amps=0); 0x05 is ignored by a charging TWC
     slave = TWCSlave(twc_id=bytes([0x29, 0x19]), max_amps=32.0)
     slave.protocol_version = 2
     data = slave.build_master_heartbeat(desired_amps=0.0)
-    assert data[0] == 0x05
+    assert data[0] == 0x09
     assert data[1] == 0x00
     assert data[2] == 0x00
 
