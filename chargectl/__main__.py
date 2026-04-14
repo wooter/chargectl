@@ -127,16 +127,17 @@ def run_loop(
                 power, voltage = mqtt_client.get_measurements()
                 engine.calculate(power, voltage)
 
-                active = [
+                charging = [
                     sid for sid, s in slave_list
-                    if s.state in (
-                        SlaveState.CHARGING,
-                        SlaveState.STARTING,
-                        SlaveState.PLUGGED_READY,
-                    )
+                    if s.state in (SlaveState.CHARGING, SlaveState.STARTING)
                 ]
-                shares = engine.allocate(len(active))
-                allocation = dict(zip(active, shares))
+                ready = [
+                    sid for sid, s in slave_list
+                    if s.state == SlaveState.PLUGGED_READY
+                ]
+                c_shares, r_shares = engine.allocate(len(charging), len(ready))
+                allocation = dict(zip(charging, c_shares))
+                allocation.update(zip(ready, r_shares))
 
             offered = allocation.get(slave_id, 0)
             twc.send_heartbeat(slave, offered)

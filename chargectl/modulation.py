@@ -26,31 +26,41 @@ class ModulationEngine:
         self.last_change_time = 0.0
         self.last_data_time = time.time()
 
-    def allocate(self, n_active: int) -> list[int]:
-        """Split desired_amps across n_active slaves.
+    def allocate(self, n_charging: int, n_ready: int) -> tuple[list[int], list[int]]:
+        """Split desired_amps across charging and plugged-ready slaves.
 
-        Returns a list of length n_active. If per-slave share falls below
-        TWC_MIN_AMPS, packs the total into fewer slaves at >= TWC_MIN_AMPS
-        and gives 0 to the rest.
+        Returns (charging_shares, ready_shares).
+
+        Protocol constraint: a P2 TWC cannot be stopped via RS-485 once a car
+        is drawing; forcing 0A repeatedly would fault the car. So every
+        already-charging slave is guaranteed at least TWC_MIN_AMPS, even if
+        that overshoots desired_amps. A plugged-ready slave is only started
+        (given >=TWC_MIN_AMPS) if budget permits on top of charging cars.
         """
-        if n_active <= 0:
-            return []
+        charging_shares = [TWC_MIN_AMPS] * n_charging
+        ready_shares = [0] * n_ready
+
         total = self.desired_amps
-        if total <= 0:
-            return [0] * n_active
-        per = total // n_active
-        if per >= TWC_MIN_AMPS:
-            remainder = total - per * n_active
-            return [per + (1 if i < remainder else 0) for i in range(n_active)]
-        n_charging = total // TWC_MIN_AMPS
-        if n_charging == 0:
-            return [0] * n_active
-        per = total // n_charging
-        remainder = total - per * n_charging
-        return [
-            per + (1 if i < remainder else 0) if i < n_charging else 0
-            for i in range(n_active)
-        ]
+        remaining = total - TWC_MIN_AMPS * n_charging
+
+        if remaining <= 0:
+            return charging_shares, ready_shares
+
+        n_starts = min(n_ready, remaining // TWC_MIN_AMPS)
+        active = n_charging + n_starts
+        if active == 0:
+            return charging_shares, ready_shares
+
+        per = max(TWC_MIN_AMPS, total // active)
+        leftover = max(0, total - per * active)
+
+        for i in range(n_charging):
+            charging_shares[i] = per + (1 if i < leftover else 0)
+        for i in range(n_starts):
+            j = n_charging + i
+            ready_shares[i] = per + (1 if j < leftover else 0)
+
+        return charging_shares, ready_shares
 
     def calculate(
         self,

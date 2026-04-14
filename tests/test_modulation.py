@@ -114,56 +114,86 @@ def test_watchdog_no_data():
     assert result == 0
 
 
-def test_allocate_zero_slaves():
+def test_allocate_no_slaves():
     engine = ModulationEngine(max_amps=20, margin_amps=1)
     engine.desired_amps = 12
-    assert engine.allocate(0) == []
+    assert engine.allocate(0, 0) == ([], [])
 
 
-def test_allocate_zero_desired():
-    engine = ModulationEngine(max_amps=20, margin_amps=1)
-    engine.desired_amps = 0
-    assert engine.allocate(2) == [0, 0]
-
-
-def test_allocate_single_slave():
+def test_allocate_one_ready_enough_budget():
     engine = ModulationEngine(max_amps=20, margin_amps=1)
     engine.desired_amps = 11
-    assert engine.allocate(1) == [11]
+    assert engine.allocate(0, 1) == ([], [11])
 
 
-def test_allocate_even_split():
-    engine = ModulationEngine(max_amps=20, margin_amps=1)
-    engine.desired_amps = 14
-    assert engine.allocate(2) == [7, 7]
-
-
-def test_allocate_split_with_remainder():
-    engine = ModulationEngine(max_amps=20, margin_amps=1)
-    engine.desired_amps = 13
-    # 13/2 = 6 remainder 1, first slave gets +1
-    assert engine.allocate(2) == [7, 6]
-
-
-def test_allocate_below_min_packs_into_one():
-    engine = ModulationEngine(max_amps=20, margin_amps=1)
-    engine.desired_amps = 11
-    # 11/2 = 5 < TWC_MIN, so one slave gets 11, other gets 0
-    assert engine.allocate(2) == [11, 0]
-
-
-def test_allocate_below_min_packs_into_two_of_three():
-    engine = ModulationEngine(max_amps=20, margin_amps=1)
-    engine.desired_amps = 14
-    # 14/3 = 4 < TWC_MIN. 14//6 = 2 cars, 14/2 = 7 each
-    assert engine.allocate(3) == [7, 7, 0]
-
-
-def test_allocate_total_below_min():
+def test_allocate_one_ready_below_min_does_not_start():
     engine = ModulationEngine(max_amps=20, margin_amps=1)
     engine.desired_amps = 5
-    # Not enough total to hit TWC_MIN even for one car
-    assert engine.allocate(2) == [0, 0]
+    assert engine.allocate(0, 1) == ([], [0])
+
+
+def test_allocate_two_ready_splits_evenly():
+    engine = ModulationEngine(max_amps=20, margin_amps=1)
+    engine.desired_amps = 14
+    assert engine.allocate(0, 2) == ([], [7, 7])
+
+
+def test_allocate_two_ready_tight_budget_starts_one():
+    # 11A total, 2 ready: starting both would give 5A each (<6A),
+    # so only one gets started at 11A, other stays at 0
+    engine = ModulationEngine(max_amps=20, margin_amps=1)
+    engine.desired_amps = 11
+    assert engine.allocate(0, 2) == ([], [11, 0])
+
+
+def test_allocate_charging_always_gets_min_even_over_budget():
+    # Two cars already charging, budget says 10A but we can't stop them.
+    # Each must get at least 6A; total draw will overshoot budget.
+    engine = ModulationEngine(max_amps=20, margin_amps=1)
+    engine.desired_amps = 10
+    assert engine.allocate(2, 0) == ([6, 6], [])
+
+
+def test_allocate_charging_at_zero_budget():
+    # Emergency: desired=0, but one car already charging — hold at 6A
+    engine = ModulationEngine(max_amps=20, margin_amps=1)
+    engine.desired_amps = 0
+    assert engine.allocate(1, 0) == ([6], [])
+
+
+def test_allocate_charging_plus_ready_enough_budget():
+    engine = ModulationEngine(max_amps=20, margin_amps=1)
+    engine.desired_amps = 14
+    # 14 across 2: 7 each
+    assert engine.allocate(1, 1) == ([7], [7])
+
+
+def test_allocate_charging_plus_ready_no_budget_to_start_ready():
+    # One charging at min, 6A budget left after floor → not enough for ready
+    engine = ModulationEngine(max_amps=20, margin_amps=1)
+    engine.desired_amps = 10
+    # remaining = 10-6 = 4 < 6 → don't start ready; charging gets 10
+    assert engine.allocate(1, 1) == ([10], [0])
+
+
+def test_allocate_charging_plus_ready_exactly_enough():
+    engine = ModulationEngine(max_amps=20, margin_amps=1)
+    engine.desired_amps = 12
+    # remaining = 6 → can start ready at 6A, charging at 6A
+    assert engine.allocate(1, 1) == ([6], [6])
+
+
+def test_allocate_two_charging_plus_one_ready_starts_third():
+    engine = ModulationEngine(max_amps=20, margin_amps=1)
+    engine.desired_amps = 18
+    assert engine.allocate(2, 1) == ([6, 6], [6])
+
+
+def test_allocate_split_remainder_goes_to_charging_first():
+    engine = ModulationEngine(max_amps=20, margin_amps=1)
+    engine.desired_amps = 13
+    # per = 6, leftover = 1 → first slot gets +1
+    assert engine.allocate(1, 1) == ([7], [6])
 
 
 def test_worst_phase_used():
