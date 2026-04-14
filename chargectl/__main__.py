@@ -127,13 +127,18 @@ def run_loop(
                 power, voltage = mqtt_client.get_measurements()
                 engine.calculate(power, voltage)
 
+                # Treat a slave as charging whenever it's actually drawing
+                # current, regardless of state byte — P2 TWCs can flip to
+                # READY after a 0x09/0A command while the car keeps pulling.
                 charging = [
                     sid for sid, s in slave_list
                     if s.state in (SlaveState.CHARGING, SlaveState.STARTING)
+                    or s.amps_actual > 2.0
                 ]
                 ready = [
                     sid for sid, s in slave_list
-                    if s.state == SlaveState.PLUGGED_READY
+                    if sid not in charging
+                    and s.state == SlaveState.PLUGGED_READY
                 ]
                 c_shares, r_shares = engine.allocate(len(charging), len(ready))
                 allocation = dict(zip(charging, c_shares))
