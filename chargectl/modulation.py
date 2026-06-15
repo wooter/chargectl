@@ -23,8 +23,15 @@ class ModulationEngine:
         self.max_amps = max_amps
         self.margin_amps = margin_amps
         self.desired_amps = 0
+        self.enabled = True
         self.last_change_time = 0.0
         self.last_data_time = time.time()
+
+    def set_enabled(self, enabled: bool) -> None:
+        """Enable or disable automatic charging modulation."""
+        self.enabled = enabled
+        if not enabled:
+            self.desired_amps = 0
 
     def allocate(self, n_charging: int, n_ready: int) -> tuple[list[int], list[int]]:
         """Split desired_amps across charging and plugged-ready slaves.
@@ -71,6 +78,10 @@ class ModulationEngine:
 
         Returns the new desired amps value (0 or >= TWC_MIN_AMPS).
         """
+        if not self.enabled:
+            self.desired_amps = 0
+            return 0
+
         if any(v is None for v in power_per_phase) or any(
             v is None for v in voltage_per_phase
         ):

@@ -34,6 +34,31 @@ def _calibrated_kwh(slave_id_hex: str, raw_kwh: int, chargers_config: dict) -> i
     return raw_kwh
 
 
+def _apply_control_command(engine: ModulationEngine, command: str, value: str) -> bool:
+    """Apply a control command to the modulation engine.
+
+    Returns True when command/value was accepted and applied.
+    """
+    if command == "max_amps":
+        try:
+            engine.max_amps = int(value)
+            logger.info("Max amps set to %d via MQTT", engine.max_amps)
+            return True
+        except ValueError:
+            return False
+
+    if command == "enabled":
+        enabled = value.lower() not in ("false", "0", "off")
+        engine.set_enabled(enabled)
+        if enabled:
+            logger.info("Charging enabled via MQTT")
+        else:
+            logger.info("Charging disabled via MQTT")
+        return True
+
+    return False
+
+
 def run_loop(
     twc: TWCMaster,
     mqtt_client: ChargeMQTT,
@@ -202,16 +227,7 @@ def main(argv: list[str] | None = None) -> None:
     )
 
     def on_control(command: str, value: str):
-        if command == "max_amps":
-            try:
-                engine.max_amps = int(value)
-                logger.info("Max amps set to %d via MQTT", engine.max_amps)
-            except ValueError:
-                pass
-        elif command == "enabled":
-            if value.lower() in ("false", "0", "off"):
-                engine.desired_amps = 0
-                logger.info("Charging disabled via MQTT")
+        _apply_control_command(engine, command, value)
 
     mqtt_client.set_on_control(on_control)
 

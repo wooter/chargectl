@@ -207,3 +207,31 @@ def test_worst_phase_used():
         voltage_per_phase=[230, 230, 230],
     )
     assert result == 9
+
+
+def test_disabled_forces_zero_and_blocks_ramp_up():
+    engine = ModulationEngine(max_amps=20, margin_amps=1)
+    engine.desired_amps = 10
+    engine.set_enabled(False)
+
+    result = engine.calculate(
+        power_per_phase=[1150, 800, 900],
+        voltage_per_phase=[230, 230, 230],
+    )
+
+    assert result == 0
+    assert engine.desired_amps == 0
+
+
+def test_reenabled_allows_ramp_up_again():
+    engine = ModulationEngine(max_amps=20, margin_amps=1)
+    engine.set_enabled(False)
+    engine.set_enabled(True)
+    engine.last_change_time = 0
+
+    result = engine.calculate(
+        power_per_phase=[1150, 800, 900],
+        voltage_per_phase=[230, 230, 230],
+    )
+
+    assert result == 6

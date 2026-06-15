@@ -41,6 +41,29 @@ chargectl --config /etc/chargectl/config.yaml
 
 See [INSTALL.md](INSTALL.md) for full setup instructions including systemd service.
 
+## Testing (Canonical Path)
+
+Use a local Python 3.11 virtualenv and run the modulation test through the venv interpreter.
+
+```bash
+python3.11 -m venv .venv311
+.venv311/bin/python -m pip install --upgrade pip
+.venv311/bin/python -m pip install -e ".[dev]"
+.venv311/bin/python -m pytest tests/test_modulation.py -q
+```
+
+Equivalent `make` targets:
+
+```bash
+make dev-install
+make test-modulation
+```
+
+CI mapping:
+
+- GitHub Actions workflow: `.github/workflows/test-modulation.yml`
+- CI command: `make ci-test-modulation`
+
 ## Configuration
 
 See [config.example.yaml](config.example.yaml) for all options.
@@ -79,6 +102,17 @@ chargectl publishes MQTT auto-discovery messages. After starting, HA will automa
 
 - **Sensors**: amps actual, amps offered, power, state, voltage per phase (per TWC)
 - **Controls**: max amps (number), charging enabled (via MQTT)
+
+Production automation package for scheduler/control hardening:
+
+- Package file: `homeassistant/packages/chargectl_production.yaml`
+- Deployment/validation runbook: `docs/plans/2026-05-12-hom-10-ha-automation-package.md`
+- Includes HA-side `script.chargectl_emergency_stop` for one-action disable + `max_amps=0`
+
+Tariff-sensor-driven variant (live price feed, fail-safe on stale data):
+
+- Package file: `homeassistant/packages/chargectl_tariff_sensor.yaml`
+- Deployment/validation runbook: `docs/plans/2026-05-12-hom-13-tariff-sensor-ha-automation-package.md`
 
 ## Hardware Requirements
 

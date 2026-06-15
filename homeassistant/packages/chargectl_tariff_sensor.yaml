@@ -1,0 +1,177 @@
+input_number:
+  chargectl_max_amps:
+    name: chargectl max amps
+    min: 0
+    max: 32
+    step: 1
+    mode: box
+    unit_of_measurement: A
+    icon: mdi:current-ac
+  chargectl_tariff_cheap_threshold:
+    name: chargectl cheap tariff threshold
+    min: -1
+    max: 2
+    step: 0.01
+    mode: box
+    unit_of_measurement: "EUR/kWh"
+    icon: mdi:currency-eur
+  chargectl_tariff_expensive_threshold:
+    name: chargectl expensive tariff threshold
+    min: -1
+    max: 2
+    step: 0.01
+    mode: box
+    unit_of_measurement: "EUR/kWh"
+    icon: mdi:currency-eur
+  chargectl_tariff_cheap_amps:
+    name: chargectl cheap tariff amps
+    min: 0
+    max: 32
+    step: 1
+    mode: box
+    unit_of_measurement: A
+    icon: mdi:current-ac
+  chargectl_tariff_normal_amps:
+    name: chargectl normal tariff amps
+    min: 0
+    max: 32
+    step: 1
+    mode: box
+    unit_of_measurement: A
+    icon: mdi:current-ac
+
+input_boolean:
+  chargectl_enabled:
+    name: chargectl enabled
+    icon: mdi:ev-station
+  chargectl_tariff_automation_enabled:
+    name: chargectl tariff automation enabled
+    icon: mdi:transmission-tower
+
+automation:
+  - id: chargectl_tariff_sync_control_on_ha_start
+    alias: "chargectl tariff: sync control state on HA start"
+    mode: single
+    trigger:
+      - platform: homeassistant
+        event: start
+    action:
+      - service: mqtt.publish
+        data:
+          topic: chargectl/control/max_amps
+          payload: "{{ states('input_number.chargectl_max_amps') | int(0) }}"
+          qos: 1
+          retain: true
+      - service: mqtt.publish
+        data:
+          topic: chargectl/control/enabled
+          payload: "{{ 'on' if is_state('input_boolean.chargectl_enabled', 'on') else 'off' }}"
+          qos: 1
+          retain: true
+
+  - id: chargectl_tariff_push_enable_toggle
+    alias: "chargectl tariff: push enable toggle"
+    mode: restart
+    trigger:
+      - platform: state
+        entity_id: input_boolean.chargectl_enabled
+    action:
+      - service: mqtt.publish
+        data:
+          topic: chargectl/control/enabled
+          payload: "{{ 'on' if is_state('input_boolean.chargectl_enabled', 'on') else 'off' }}"
+          qos: 1
+          retain: true
+
+  - id: chargectl_tariff_push_max_amps
+    alias: "chargectl tariff: push max amps"
+    mode: restart
+    trigger:
+      - platform: state
+        entity_id: input_number.chargectl_max_amps
+    action:
+      - service: mqtt.publish
+        data:
+          topic: chargectl/control/max_amps
+          payload: "{{ states('input_number.chargectl_max_amps') | int(0) }}"
+          qos: 1
+          retain: true
+
+  - id: chargectl_tariff_apply_signal
+    alias: "chargectl tariff: apply live tariff signal"
+    mode: restart
+    trigger:
+      - platform: state
+        entity_id:
+          - sensor.grid_tariff_eur_kwh
+          - binary_sensor.grid_tariff_data_fresh
+          - input_boolean.chargectl_tariff_automation_enabled
+          - input_number.chargectl_tariff_cheap_threshold
+          - input_number.chargectl_tariff_expensive_threshold
+          - input_number.chargectl_tariff_cheap_amps
+          - input_number.chargectl_tariff_normal_amps
+      - platform: homeassistant
+        event: start
+    condition:
+      - condition: state
+        entity_id: input_boolean.chargectl_tariff_automation_enabled
+        state: "on"
+    action:
+      - choose:
+          - conditions:
+              - condition: not
+                conditions:
+                  - condition: state
+                    entity_id: binary_sensor.grid_tariff_data_fresh
+                    state: "on"
+            sequence:
+              - service: script.chargectl_tariff_emergency_hold
+          - conditions:
+              - condition: template
+                value_template: "{{ states('sensor.grid_tariff_eur_kwh') in ['unknown', 'unavailable', 'none', ''] }}"
+            sequence:
+              - service: script.chargectl_tariff_emergency_hold
+          - conditions:
+              - condition: template
+                value_template: >-
+                  {{ states('sensor.grid_tariff_eur_kwh') | float(99) <=
+                     states('input_number.chargectl_tariff_cheap_threshold') | float(0.18) }}
+            sequence:
+              - service: input_boolean.turn_on
+                target:
+                  entity_id: input_boolean.chargectl_enabled
+              - service: input_number.set_value
+                target:
+                  entity_id: input_number.chargectl_max_amps
+                data:
+                  value: "{{ states('input_number.chargectl_tariff_cheap_amps') | int(16) }}"
+          - conditions:
+              - condition: template
+                value_template: >-
+                  {{ states('sensor.grid_tariff_eur_kwh') | float(99) >=
+                     states('input_number.chargectl_tariff_expensive_threshold') | float(0.35) }}
+            sequence:
+              - service: script.chargectl_tariff_emergency_hold
+        default:
+          - service: input_boolean.turn_on
+            target:
+              entity_id: input_boolean.chargectl_enabled
+          - service: input_number.set_value
+            target:
+              entity_id: input_number.chargectl_max_amps
+            data:
+              value: "{{ states('input_number.chargectl_tariff_normal_amps') | int(10) }}"
+
+script:
+  chargectl_tariff_emergency_hold:
+    alias: "chargectl tariff emergency hold"
+    mode: single
+    sequence:
+      - service: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.chargectl_enabled
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.chargectl_max_amps
+        data:
+          value: 0

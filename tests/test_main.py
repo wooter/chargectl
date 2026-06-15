@@ -1,7 +1,8 @@
 from unittest.mock import patch, MagicMock
 import tempfile
 import os
-from chargectl.__main__ import _calibrated_kwh
+from chargectl.__main__ import _calibrated_kwh, _apply_control_command
+from chargectl.modulation import ModulationEngine
 
 VALID_CONFIG = """
 mqtt:
@@ -61,3 +62,25 @@ def test_calibrated_kwh_unknown_slave():
     config = {"6807": {"kwh_real": 5149, "kwh_counter": 2437}}
     # Unknown slave -> return raw value
     assert _calibrated_kwh("2919", 4793511, config) == 4793511
+
+
+def test_hom10_gate_manual_disable_enable_semantics():
+    engine = ModulationEngine(max_amps=20, margin_amps=3)
+    engine.desired_amps = 10
+
+    assert _apply_control_command(engine, "enabled", "off") is True
+    assert engine.enabled is False
+    assert engine.desired_amps == 0
+
+    assert _apply_control_command(engine, "enabled", "on") is True
+    assert engine.enabled is True
+
+
+def test_hom10_gate_max_amps_override_semantics():
+    engine = ModulationEngine(max_amps=20, margin_amps=3)
+
+    assert _apply_control_command(engine, "max_amps", "8") is True
+    assert engine.max_amps == 8
+
+    assert _apply_control_command(engine, "max_amps", "invalid") is False
+    assert engine.max_amps == 8

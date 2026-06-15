@@ -1,0 +1,123 @@
+input_number:
+  chargectl_max_amps:
+    name: chargectl max amps
+    min: 0
+    max: 32
+    step: 1
+    mode: box
+    unit_of_measurement: A
+    icon: mdi:current-ac
+
+input_boolean:
+  chargectl_enabled:
+    name: chargectl enabled
+    icon: mdi:ev-station
+
+input_datetime:
+  chargectl_cheap_start:
+    name: chargectl cheap window start
+    has_date: false
+    has_time: true
+  chargectl_cheap_end:
+    name: chargectl cheap window end
+    has_date: false
+    has_time: true
+
+automation:
+  - id: chargectl_sync_control_on_ha_start
+    alias: "chargectl: sync control state on HA start"
+    mode: single
+    trigger:
+      - platform: homeassistant
+        event: start
+    action:
+      - service: mqtt.publish
+        data:
+          topic: chargectl/control/max_amps
+          payload: "{{ states('input_number.chargectl_max_amps') | int(0) }}"
+          qos: 1
+          retain: true
+      - service: mqtt.publish
+        data:
+          topic: chargectl/control/enabled
+          payload: "{{ 'on' if is_state('input_boolean.chargectl_enabled', 'on') else 'off' }}"
+          qos: 1
+          retain: true
+
+  - id: chargectl_push_enable_toggle
+    alias: "chargectl: push enable toggle"
+    mode: restart
+    trigger:
+      - platform: state
+        entity_id: input_boolean.chargectl_enabled
+    action:
+      - service: mqtt.publish
+        data:
+          topic: chargectl/control/enabled
+          payload: "{{ 'on' if is_state('input_boolean.chargectl_enabled', 'on') else 'off' }}"
+          qos: 1
+          retain: true
+
+  - id: chargectl_push_max_amps
+    alias: "chargectl: push max amps"
+    mode: restart
+    trigger:
+      - platform: state
+        entity_id: input_number.chargectl_max_amps
+    action:
+      - service: mqtt.publish
+        data:
+          topic: chargectl/control/max_amps
+          payload: "{{ states('input_number.chargectl_max_amps') | int(0) }}"
+          qos: 1
+          retain: true
+
+  - id: chargectl_night_window_enable
+    alias: "chargectl: enable in cheap window"
+    mode: single
+    trigger:
+      - platform: time
+        at: input_datetime.chargectl_cheap_start
+    action:
+      - service: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.chargectl_enabled
+
+  - id: chargectl_day_window_disable
+    alias: "chargectl: disable after cheap window"
+    mode: single
+    trigger:
+      - platform: time
+        at: input_datetime.chargectl_cheap_end
+    action:
+      - service: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.chargectl_enabled
+
+script:
+  chargectl_set_eco_amps:
+    alias: "chargectl eco amps"
+    mode: restart
+    fields:
+      amps:
+        description: "Max amps per phase to push"
+        example: 10
+    sequence:
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.chargectl_max_amps
+        data:
+          value: "{{ amps | int(10) }}"
+
+  chargectl_emergency_stop:
+    alias: "chargectl emergency stop"
+    mode: single
+    sequence:
+      - service: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.chargectl_enabled
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.chargectl_max_amps
+        data:
+          value: 0
