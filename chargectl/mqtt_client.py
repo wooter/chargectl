@@ -188,11 +188,12 @@ class ChargeMQTT:
 
     def _handle_control(self, topic: str, payload: bytes) -> None:
         """Handle incoming control messages."""
-        command = topic.split("/")[-1]
+        prefix = f"{TOPIC_PREFIX}/control/"
+        sub = topic[len(prefix):] if topic.startswith(prefix) else topic.split("/")[-1]
         try:
             value = payload.decode("utf-8").strip()
         except UnicodeDecodeError:
             return
-        logger.info("Control message: %s = %s", command, value)
+        logger.info("Control message: %s = %s", sub, value)
         if self._on_control_callback:
-            self._on_control_callback(command, value)
+            self._on_control_callback(sub, value)

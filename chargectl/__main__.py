@@ -11,7 +11,7 @@ import time
 from chargectl import __version__
 from chargectl.config import load_config
 from chargectl.charger import SlaveState, TWCSlave
-from chargectl.modulation import ModulationEngine
+from chargectl.modulation import ModulationEngine, DEFAULT_CAP
 from chargectl.mqtt_client import ChargeMQTT
 from chargectl.rs485 import TWCMaster
 
@@ -140,7 +140,9 @@ def run_loop(
                     if sid not in charging
                     and s.state == SlaveState.PLUGGED_READY
                 ]
-                c_shares, r_shares = engine.allocate(len(charging), len(ready))
+                charging_caps = [engine.slave_caps.get(sid, DEFAULT_CAP) for sid in charging]
+                ready_caps = [engine.slave_caps.get(sid, DEFAULT_CAP) for sid in ready]
+                c_shares, r_shares = engine.allocate(len(charging), len(ready), charging_caps, ready_caps)
                 allocation = dict(zip(charging, c_shares))
                 allocation.update(zip(ready, r_shares))
 
@@ -212,6 +214,13 @@ def main(argv: list[str] | None = None) -> None:
             if value.lower() in ("false", "0", "off"):
                 engine.desired_amps = 0
                 logger.info("Charging disabled via MQTT")
+        elif command.startswith("slave/") and command.endswith("/max_amps"):
+            try:
+                twc_hex = command.split("/")[1]
+                engine.set_slave_cap(bytes.fromhex(twc_hex), int(value))
+                logger.info("Slave %s cap set to %sA via MQTT", twc_hex, value)
+            except (ValueError, IndexError):
+                pass
 
     mqtt_client.set_on_control(on_control)
 

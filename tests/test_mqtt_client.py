@@ -75,3 +75,19 @@ def test_ha_discovery_payload():
     for topic, payload in payloads:
         assert "device" in payload
         assert payload["device"]["name"] == "chargectl"
+
+
+def test_per_slave_control_topic_routes_correctly():
+    """chargectl/control/slave/<hex>/max_amps must arrive as sub == 'slave/<hex>/max_amps'."""
+    cfg = make_config()
+    mqtt = ChargeMQTT(cfg)
+    received = {}
+
+    def callback(sub, value):
+        received["sub"] = sub
+        received["value"] = value
+
+    mqtt._on_control_callback = callback
+    mqtt._handle_control("chargectl/control/slave/2919/max_amps", b"10")
+    assert received["sub"] == "slave/2919/max_amps"
+    assert received["value"] == "10"

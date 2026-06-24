@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 TWC_MIN_AMPS = 6
 RATE_LIMIT_SECONDS = 5
 WATCHDOG_TIMEOUT = 15
+DEFAULT_CAP = 80
 
 
 class ModulationEngine:
@@ -25,8 +26,13 @@ class ModulationEngine:
         self.desired_amps = 0
         self.last_change_time = 0.0
         self.last_data_time = time.time()
+        self.slave_caps: dict[bytes, int] = {}
 
-    def allocate(self, n_charging: int, n_ready: int) -> tuple[list[int], list[int]]:
+    def set_slave_cap(self, twc_id: bytes, amps: int) -> None:
+        """Set the max amps an external controller wants this slave to draw."""
+        self.slave_caps[twc_id] = int(amps)
+
+    def allocate(self, n_charging: int, n_ready: int, charging_caps=None, ready_caps=None) -> tuple[list[int], list[int]]:
         """Split desired_amps across charging and plugged-ready slaves.
 
         Returns (charging_shares, ready_shares).
@@ -37,29 +43,35 @@ class ModulationEngine:
         that overshoots desired_amps. A plugged-ready slave is only started
         (given >=TWC_MIN_AMPS) if budget permits on top of charging cars.
         """
+        if charging_caps is None:
+            charging_caps = [DEFAULT_CAP] * n_charging
+        if ready_caps is None:
+            ready_caps = [DEFAULT_CAP] * n_ready
+
         charging_shares = [TWC_MIN_AMPS] * n_charging
         ready_shares = [0] * n_ready
-
-        total = self.desired_amps
-        remaining = total - TWC_MIN_AMPS * n_charging
-
+        remaining = self.desired_amps - TWC_MIN_AMPS * n_charging
         if remaining <= 0:
             return charging_shares, ready_shares
-
-        n_starts = min(n_ready, remaining // TWC_MIN_AMPS)
-        active = n_charging + n_starts
-        if active == 0:
-            return charging_shares, ready_shares
-
-        per = max(TWC_MIN_AMPS, total // active)
-        leftover = max(0, total - per * active)
-
-        for i in range(n_charging):
-            charging_shares[i] = per + (1 if i < leftover else 0)
-        for i in range(n_starts):
-            j = n_charging + i
-            ready_shares[i] = per + (1 if j < leftover else 0)
-
+        # start ready slaves (need MIN to start), in order, while budget + cap allow
+        for i in range(n_ready):
+            if remaining >= TWC_MIN_AMPS and ready_caps[i] >= TWC_MIN_AMPS:
+                ready_shares[i] = TWC_MIN_AMPS
+                remaining -= TWC_MIN_AMPS
+        # water-fill the rest 1A at a time to any slave below its cap (round-robin)
+        while remaining > 0:
+            progressed = False
+            for i in range(n_charging):
+                if charging_shares[i] < charging_caps[i]:
+                    charging_shares[i] += 1; remaining -= 1; progressed = True
+                    if remaining <= 0: break
+            if remaining <= 0: break
+            for i in range(n_ready):
+                if ready_shares[i] > 0 and ready_shares[i] < ready_caps[i]:
+                    ready_shares[i] += 1; remaining -= 1; progressed = True
+                    if remaining <= 0: break
+            if not progressed:
+                break
         return charging_shares, ready_shares
 
     def calculate(

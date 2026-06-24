@@ -1,5 +1,5 @@
 import time
-from chargectl.modulation import ModulationEngine
+from chargectl.modulation import ModulationEngine, DEFAULT_CAP
 
 
 def test_initial_state_is_zero():
@@ -207,3 +207,32 @@ def test_worst_phase_used():
         voltage_per_phase=[230, 230, 230],
     )
     assert result == 9
+
+
+def test_allocate_respects_charging_cap():
+    # 2 charging slaves with caps [6, 32], desired_amps=20
+    # Without caps: each would get 10A
+    # With cap: slave 0 held at 6, slave 1 gets the rest (14A)
+    engine = ModulationEngine(max_amps=32, margin_amps=1)
+    engine.desired_amps = 20
+    c_shares, r_shares = engine.allocate(2, 0, charging_caps=[6, 32])
+    assert c_shares[0] == 6
+    assert c_shares[1] == 14
+    assert r_shares == []
+
+
+def test_allocate_caps_never_exceed_desired():
+    # caps sum well above desired_amps; total handed out must not exceed desired
+    engine = ModulationEngine(max_amps=80, margin_amps=1)
+    engine.desired_amps = 15
+    c_shares, r_shares = engine.allocate(2, 1, charging_caps=[32, 32], ready_caps=[32])
+    assert sum(c_shares) + sum(r_shares) == 15
+
+
+def test_set_slave_cap_and_default():
+    engine = ModulationEngine(max_amps=32, margin_amps=1)
+    twc_id = b'\x29\x19'
+    unknown_id = b'\xff\xff'
+    engine.set_slave_cap(twc_id, 10)
+    assert engine.slave_caps[twc_id] == 10
+    assert engine.slave_caps.get(unknown_id, DEFAULT_CAP) == DEFAULT_CAP
